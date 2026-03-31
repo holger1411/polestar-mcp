@@ -97,4 +97,4 @@ A standalone HTML dashboard (`polestar-dashboard.html`) is included as a visual 
 ## Acknowledgments
 
 - Built with [MCP (Model Context Protocol)](https://modelcontextprotocol.io)
-- Inspired by [pypolestar](https://github.com/leeyuentuen/pypolestar)
+- API groundwork and reverse engineering by [pypolestar/polestar_api](https://github.com/pypolestar/polestar_api) — this project's authentication and GraphQL integration builds on their research
