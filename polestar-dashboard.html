@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Polestar 2 — Ladestatus Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0f;
+    --card: #12121a;
+    --card-border: #1e1e2a;
+    --text: #e8e8ed;
+    --text-muted: #8888a0;
+    --accent: #c8a84e;
+    --accent-glow: rgba(200, 168, 78, 0.15);
+    --charging: #4ecdc4;
+    --charging-glow: rgba(78, 205, 196, 0.2);
+    --ok: #4ecdc4;
+    --warn: #f5a623;
+    --radius: 16px;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  .dashboard {
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--card-border);
+  }
+
+  .header-left h1 {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+  }
+
+  .header-left .subtitle {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin-top: 4px;
+  }
+
+  .header-right {
+    text-align: right;
+  }
+
+  .vin {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--card);
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--card-border);
+  }
+
+  .plate {
+    margin-top: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  /* Battery Ring */
+  .battery-section {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 60px;
+    padding: 48px 0;
+    margin-bottom: 32px;
+  }
+
+  .battery-ring-container {
+    position: relative;
+    width: 240px;
+    height: 240px;
+  }
+
+  .battery-ring-container svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+  }
+
+  .ring-bg {
+    fill: none;
+    stroke: var(--card-border);
+    stroke-width: 12;
+  }
+
+  .ring-fill {
+    fill: none;
+    stroke: var(--charging);
+    stroke-width: 12;
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 8px var(--charging-glow));
+    transition: stroke-dashoffset 2s ease-out;
+  }
+
+  .battery-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+  }
+
+  .battery-percent {
+    font-size: 56px;
+    font-weight: 700;
+    letter-spacing: -2px;
+    line-height: 1;
+  }
+
+  .battery-percent span {
+    font-size: 28px;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+
+  .battery-label {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  .battery-details {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .detail-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+  }
+
+  .detail-value {
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: -1px;
+  }
+
+  .detail-value.charging-status {
+    color: var(--charging);
+    font-size: 18px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .pulse-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--charging);
+    animation: pulse 2s ease-in-out infinite;
+    box-shadow: 0 0 8px var(--charging);
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  /* Cards Grid */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 24px;
+    transition: border-color 0.2s;
+  }
+
+  .card:hover {
+    border-color: #2a2a3a;
+  }
+
+  .card-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    font-size: 20px;
+  }
+
+  .card-icon.range { background: rgba(78, 205, 196, 0.1); }
+  .card-icon.odo { background: rgba(200, 168, 78, 0.1); }
+  .card-icon.time { background: rgba(168, 130, 255, 0.1); }
+
+  .card-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .card-value {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+  }
+
+  .card-value .unit {
+    font-size: 16px;
+    font-weight: 400;
+    color: var(--text-muted);
+    margin-left: 4px;
+  }
+
+  .card-sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  /* Health Section */
+  .health-section {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 28px;
+  }
+
+  .health-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .health-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+
+  .health-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+    padding: 16px 8px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+  }
+
+  .health-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 6px rgba(78, 205, 196, 0.4);
+  }
+
+  .health-name {
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .health-status {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* Charge Progress Bar */
+  .charge-timeline {
+    margin-top: 32px;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 28px;
+  }
+
+  .timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+
+  .timeline-title {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .timeline-eta {
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .timeline-bar-bg {
+    height: 8px;
+    background: var(--card-border);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .timeline-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--charging), #80e0d8);
+    border-radius: 4px;
+    transition: width 2s ease-out;
+    position: relative;
+  }
+
+  .timeline-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  .timeline-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* Responsive */
+  @media (max-width: 700px) {
+    .battery-section {
+      flex-direction: column;
+      gap: 32px;
+    }
+    .cards-grid {
+      grid-template-columns: 1fr;
+    }
+    .health-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .header-right { text-align: left; }
+  }
+
+  /* Animated entrance */
+  .fade-in {
+    opacity: 0;
+    transform: translateY(12px);
+    animation: fadeIn 0.6s ease-out forwards;
+  }
+
+  @keyframes fadeIn {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .fade-in:nth-child(2) { animation-delay: 0.1s; }
+  .fade-in:nth-child(3) { animation-delay: 0.2s; }
+  .fade-in:nth-child(4) { animation-delay: 0.3s; }
+  .fade-in:nth-child(5) { animation-delay: 0.4s; }
+  .fade-in:nth-child(6) { animation-delay: 0.5s; }
+
+  .last-update {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--card-border);
+  }
+</style>
+</head>
+<body>
+
+<div class="dashboard">
+
+  <!-- Header -->
+  <div class="header fade-in">
+    <div class="header-left">
+      <h1>Polestar 2</h1>
+      <div class="subtitle">Charging Dashboard</div>
+    </div>
+    <div class="header-right">
+      <div class="vin">YOUR_VIN_HERE</div>
+      <div class="plate">XX YY 000E</div>
+    </div>
+  </div>
+
+  <!-- Battery Ring + Details -->
+  <div class="battery-section fade-in">
+    <div class="battery-ring-container">
+      <svg viewBox="0 0 200 200">
+        <circle class="ring-bg" cx="100" cy="100" r="85" />
+        <circle class="ring-fill" cx="100" cy="100" r="85"
+          stroke-dasharray="534.07"
+          stroke-dashoffset="534.07"
+          id="batteryRing" />
+      </svg>
+      <div class="battery-center">
+        <div class="battery-percent" id="percentText">0<span>%</span></div>
+        <div class="battery-label">Battery</div>
+      </div>
+    </div>
+    <div class="battery-details">
+      <div class="detail-item">
+        <div class="detail-label">Status</div>
+        <div class="detail-value charging-status">
+          <div class="pulse-dot"></div>
+          Charging
+        </div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">Time to full</div>
+        <div class="detail-value">10<span style="font-size:18px;color:var(--text-muted);font-weight:400"> h </span>0<span style="font-size:18px;color:var(--text-muted);font-weight:400"> min</span></div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">Fully charged at approx.</div>
+        <div class="detail-value" style="font-size:24px;" id="fullTime"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stat Cards -->
+  <div class="cards-grid fade-in">
+    <div class="card">
+      <div class="card-icon range">
+        <svg width="22" height="22" fill="none" stroke="#4ecdc4" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="10"/></svg>
+      </div>
+      <div class="card-title">Range</div>
+      <div class="card-value">230<span class="unit">km</span></div>
+      <div class="card-sub">estimated at current charge level</div>
+    </div>
+    <div class="card">
+      <div class="card-icon odo">
+        <svg width="22" height="22" fill="none" stroke="#c8a84e" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>
+      </div>
+      <div class="card-title">Odometer</div>
+      <div class="card-value">0<span class="unit">km</span></div>
+      <div class="card-sub">since delivery</div>
+    </div>
+    <div class="card">
+      <div class="card-icon time">
+        <svg width="22" height="22" fill="none" stroke="#a882ff" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      </div>
+      <div class="card-title">Charge Rate</div>
+      <div class="card-value" id="chargeRate">~3.2<span class="unit">kW</span></div>
+      <div class="card-sub">household outlet / AC</div>
+    </div>
+  </div>
+
+  <!-- Charge Progress -->
+  <div class="charge-timeline fade-in">
+    <div class="timeline-header">
+      <div class="timeline-title">Ladefortschritt</div>
+      <div class="timeline-eta" id="etaText"></div>
+    </div>
+    <div class="timeline-bar-bg">
+      <div class="timeline-bar-fill" id="timelineBar" style="width: 0%"></div>
+    </div>
+    <div class="timeline-labels">
+      <span>0%</span>
+      <span>25%</span>
+      <span>50%</span>
+      <span>75%</span>
+      <span>100%</span>
+    </div>
+  </div>
+
+  <!-- Vehicle Health -->
+  <div class="health-section fade-in" style="margin-top: 16px;">
+    <div class="health-title">
+      <svg width="20" height="20" fill="none" stroke="var(--ok)" stroke-width="2" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      Vehicle Health
+    </div>
+    <div class="health-grid">
+      <div class="health-item">
+        <div class="health-dot"></div>
+        <div class="health-name">Brake Fluid</div>
+        <div class="health-status">OK</div>
+      </div>
+      <div class="health-item">
+        <div class="health-dot"></div>
+        <div class="health-name">Coolant</div>
+        <div class="health-status">OK</div>
+      </div>
+      <div class="health-item">
+        <div class="health-dot"></div>
+        <div class="health-name">Oil</div>
+        <div class="health-status">OK</div>
+      </div>
+      <div class="health-item">
+        <div class="health-dot"></div>
+        <div class="health-name">Next Service</div>
+        <div class="health-status">in 712 days</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="last-update" id="lastUpdate"></div>
+
+</div>
+
+<script>
+  // Animate battery ring
+  const percent = 59;
+  const circumference = 2 * Math.PI * 85; // ~534.07
+  const offset = circumference - (percent / 100) * circumference;
+
+  setTimeout(() => {
+    document.getElementById('batteryRing').style.strokeDashoffset = offset;
+  }, 300);
+
+  // Animate percent counter
+  let current = 0;
+  const target = percent;
+  const counterEl = document.getElementById('percentText');
+  const step = () => {
+    if (current < target) {
+      current++;
+      counterEl.innerHTML = current + '<span>%</span>';
+      requestAnimationFrame(step);
+    }
+  };
+  setTimeout(step, 400);
+
+  // Animate timeline bar
+  setTimeout(() => {
+    document.getElementById('timelineBar').style.width = percent + '%';
+  }, 500);
+
+  // Calculate full-charge time
+  const now = new Date();
+  const fullTime = new Date(now.getTime() + 10 * 60 * 60 * 1000);
+  const hours = fullTime.getHours().toString().padStart(2, '0');
+  const mins = fullTime.getMinutes().toString().padStart(2, '0');
+  document.getElementById('fullTime').textContent = '~' + hours + ':' + mins + ' Uhr';
+  document.getElementById('etaText').textContent = 'Voll um ca. ' + hours + ':' + mins + ' Uhr';
+
+  // Last update
+  const updateStr = now.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    + ', ' + now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr';
+  document.getElementById('lastUpdate').textContent = 'Last updated: ' + updateStr;
+</script>
+
+</body>
+</html>

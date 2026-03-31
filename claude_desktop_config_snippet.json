@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "polestar-mcp-server": {
+      "command": "/path/to/your/venv/bin/python",
+      "args": ["-m", "polestar_mcp_server"],
+      "env": {
+        "POLESTAR_USERNAME": "YOUR_EMAIL",
+        "POLESTAR_PASSWORD": "YOUR_PASSWORD",
+        "POLESTAR_VIN": "",
+        "POLESTAR_LOG_LEVEL": "INFO",
+        "PYTHONPATH": "/path/to/polestar-mcp/src"
+      }
+    }
+  }
+}

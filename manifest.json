@@ -1,0 +1,51 @@
+{
+  "name": "polestar-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP Server for Polestar 2 — battery, charging, odometer, health (unofficial, reverse-engineered API)",
+  "mcp": {
+    "tools": [
+      {
+        "name": "polestar_get_status",
+        "description": "Get current vehicle status: battery level, charging state, range, and odometer."
+      },
+      {
+        "name": "polestar_get_vehicle_info",
+        "description": "Get static vehicle info: model, year, VIN, battery specs, software version."
+      },
+      {
+        "name": "polestar_get_health",
+        "description": "Get vehicle health: fluid levels, service warnings, next service date."
+      }
+    ]
+  },
+  "configuration": {
+    "polestar_username": {
+      "type": "string",
+      "description": "Polestar account email/username",
+      "sensitive": true,
+      "required": true
+    },
+    "polestar_password": {
+      "type": "string",
+      "description": "Polestar account password",
+      "sensitive": true,
+      "required": true
+    },
+    "polestar_vin": {
+      "type": "string",
+      "description": "Default Vehicle Identification Number (optional if only one car)",
+      "required": false
+    },
+    "polestar_log_level": {
+      "type": "string",
+      "description": "Logging level",
+      "default": "INFO",
+      "enum": ["DEBUG", "INFO", "WARNING", "ERROR"]
+    }
+  },
+  "entry_point": {
+    "type": "python_module",
+    "module": "polestar_mcp_server.server",
+    "function": "main"
+  }
+}
