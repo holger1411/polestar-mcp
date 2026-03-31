@@ -8,7 +8,7 @@ setup(
     version="0.1.0",
     description="MCP Server for Polestar 2 vehicle data (unofficial, reverse-engineered API)",
     author="Holger Koenemann",
-    url="https://github.com/holgerk/polestar-mcp",
+    url="https://github.com/holger1411/polestar-mcp",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     python_requires=">=3.10",

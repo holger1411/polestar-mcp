@@ -20,7 +20,7 @@ An MCP (Model Context Protocol) server that exposes Polestar 2 vehicle data to A
 
 ```bash
 # Clone the repository
-git clone https://github.com/holgerk/polestar-mcp.git
+git clone https://github.com/holger1411/polestar-mcp.git
 cd polestar-mcp
 
 # Create virtual environment
