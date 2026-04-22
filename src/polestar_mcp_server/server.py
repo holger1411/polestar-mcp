@@ -18,7 +18,7 @@ from .polestar.auth import PolestarAuth
 from .polestar.api_client import PolestarAPIClient
 from .polestar.models import VehicleInfo
 from .cache.manager import CacheManager
-from .utils.errors import PolestarMCPError
+from .utils.errors import APIError, AuthenticationError, PolestarMCPError
 
 logger = logging.getLogger(__name__)
 
@@ -150,8 +150,21 @@ async def _ensure_connected(state: dict) -> tuple[PolestarAPIClient, str | None]
         logger.info("Reconnected successfully!")
         return api, None
 
-    except Exception as exc:
+    except AuthenticationError as exc:
         error = f"Authentication failed: {exc}"
+        state["auth_error"] = error
+        logger.error(error)
+        return None, error
+
+    except APIError as exc:
+        # GraphQL / transport errors reach the server but are not auth failures.
+        error = f"Polestar API error: {exc}"
+        state["auth_error"] = error
+        logger.error(error)
+        return None, error
+
+    except Exception as exc:
+        error = f"Unexpected error while connecting: {type(exc).__name__}: {exc}"
         state["auth_error"] = error
         logger.error(error)
         return None, error
@@ -354,9 +367,6 @@ def _format_vehicle_info(data: dict, from_cache: bool = False) -> str:
         lines.append(f"- **Registration**: {data['registration_number']}")
     if data.get("delivery_date"):
         lines.append(f"- **Delivered**: {data['delivery_date']}")
-    if data.get("has_performance_package") is not None:
-        pp = "Yes" if data["has_performance_package"] else "No"
-        lines.append(f"- **Performance Package**: {pp}")
 
     return "\n".join(lines)
 

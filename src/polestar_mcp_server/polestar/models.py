@@ -72,7 +72,6 @@ class VehicleInfo(BaseModel):
     registration_number: Optional[str] = Field(None, description="License plate number")
     model_name: Optional[str] = Field(None, description="Model name (e.g. Polestar 2)")
     delivery_date: Optional[str] = Field(None, description="Delivery date (YYYY-MM-DD)")
-    has_performance_package: Optional[bool] = Field(None, description="Performance package installed")
 
 
 class TelematicsData(BaseModel):

@@ -41,12 +41,7 @@ query GetConsumerCarsV2 {
         registrationNo
         deliveryDate
         currentPlannedDeliveryDate
-        hasPerformancePackage
-        content {
-            model {
-                name
-            }
-        }
+        modelName
     }
 }
 """
@@ -216,15 +211,11 @@ class PolestarAPIClient:
 
         vehicles = []
         for car in cars:
-            content = car.get("content", {})
-            model_info = content.get("model", {})
-
             vehicle = VehicleInfo(
                 vin=car["vin"],
                 registration_number=car.get("registrationNo"),
-                model_name=model_info.get("name"),
+                model_name=car.get("modelName"),
                 delivery_date=car.get("deliveryDate"),
-                has_performance_package=car.get("hasPerformancePackage"),
             )
             vehicles.append(vehicle)
 
