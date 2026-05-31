@@ -5,16 +5,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pypolestar.models import (
     BrakeFluidLevelWarning,
+    ChargingConnectionStatus,
     ChargingStatus,
     ServiceWarning,
 )
+from pypolestar.grpc_models import ChargeTargetLevelSettingType, ChargingType
 
 from polestar_mcp_server.results import (
+    ChargeLimitResult,
+    ChargingResult,
     HealthResult,
     StatusResult,
     VehicleInfoResult,
     _charging_status_str,
     _warning_active,
+    build_charge_limit_result,
+    build_charging_result,
     build_health_result,
     build_status_result,
     build_vehicle_info_result,
@@ -171,17 +177,6 @@ def test_build_health_result_empty():
     assert r.kmToService is None
 
 
-from pypolestar.models import ChargingConnectionStatus
-from pypolestar.grpc_models import ChargeTargetLevelSettingType, ChargingType
-
-from polestar_mcp_server.results import (
-    ChargeLimitResult,
-    ChargingResult,
-    build_charge_limit_result,
-    build_charging_result,
-)
-
-
 # ---- build_charge_limit_result -------------------------------------------
 
 def test_build_charge_limit_result_full():
@@ -238,3 +233,13 @@ def test_build_charging_result_empty():
     assert r.chargingType is None
     assert r.chargingPowerKw is None
     assert r.chargingCurrentAmps is None
+    assert r.chargingVoltageVolts is None
+    assert r.averageConsumptionKwhPer100Km is None
+    assert r.estimatedMinutesToTargetDistance is None
+    assert r.estimatedMinutesToMinimumSoc is None
+
+
+def test_build_charging_result_zero_power_is_zero_not_none():
+    # 0 W (plugged in, not actively charging) must be 0.0 kW, not None
+    r = build_charging_result(power_watts=0)
+    assert r.chargingPowerKw == 0.0

@@ -205,7 +205,7 @@ def build_charging_result(
     charging_status=None,
     connection_status=None,
     charging_type=None,
-    power_watts: Optional[float] = None,
+    power_watts: Optional[int] = None,
     current_amps: Optional[int] = None,
     voltage_volts: Optional[int] = None,
     avg_consumption: Optional[float] = None,
