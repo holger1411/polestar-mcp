@@ -44,6 +44,14 @@ def _warning_active(warning) -> bool:
     return value not in _NO_WARNING_VALUES
 
 
+def _enum_str_or_none(enum_or_none) -> Optional[str]:
+    """Enum-Wert; None bei None/'Unspecified' (für Kontextfelder wie Steckerstatus/Typ)."""
+    value = _enum_value(enum_or_none)
+    if value is None or value == _UNSPECIFIED:
+        return None
+    return value
+
+
 # --------------------------------------------------------------------------
 # Status
 # --------------------------------------------------------------------------
@@ -145,4 +153,73 @@ def build_health_result(
         serviceWarning=_warning_active(service),
         daysToService=days,
         kmToService=km,
+    )
+
+
+# --------------------------------------------------------------------------
+# Charge Limit (Target SOC)
+# --------------------------------------------------------------------------
+
+class ChargeLimitResult(BaseModel):
+    """Spiegelt PolestarChargeLimit."""
+    chargeLimitPercent: Optional[int] = None
+    settingType: Optional[str] = None
+    pendingLimitPercent: Optional[int] = None
+    pendingSettingType: Optional[str] = None
+
+
+def build_charge_limit_result(
+    *,
+    limit_percent: Optional[int] = None,
+    setting_type=None,
+    pending_limit: Optional[int] = None,
+    pending_setting=None,
+) -> ChargeLimitResult:
+    return ChargeLimitResult(
+        chargeLimitPercent=limit_percent,
+        settingType=_enum_str_or_none(setting_type),
+        pendingLimitPercent=pending_limit,
+        pendingSettingType=_enum_str_or_none(pending_setting),
+    )
+
+
+# --------------------------------------------------------------------------
+# Charging detail (gRPC battery)
+# --------------------------------------------------------------------------
+
+class ChargingResult(BaseModel):
+    """Spiegelt PolestarCharging."""
+    chargingStatus: str = "Unknown"
+    chargerConnectionStatus: Optional[str] = None
+    chargingType: Optional[str] = None
+    chargingPowerKw: Optional[float] = None
+    chargingCurrentAmps: Optional[int] = None
+    chargingVoltageVolts: Optional[int] = None
+    averageConsumptionKwhPer100Km: Optional[float] = None
+    estimatedMinutesToTargetDistance: Optional[int] = None
+    estimatedMinutesToMinimumSoc: Optional[int] = None
+
+
+def build_charging_result(
+    *,
+    charging_status=None,
+    connection_status=None,
+    charging_type=None,
+    power_watts: Optional[float] = None,
+    current_amps: Optional[int] = None,
+    voltage_volts: Optional[int] = None,
+    avg_consumption: Optional[float] = None,
+    minutes_to_target: Optional[int] = None,
+    minutes_to_min_soc: Optional[int] = None,
+) -> ChargingResult:
+    return ChargingResult(
+        chargingStatus=_charging_status_str(charging_status),
+        chargerConnectionStatus=_enum_str_or_none(connection_status),
+        chargingType=_enum_str_or_none(charging_type),
+        chargingPowerKw=(power_watts / 1000.0) if power_watts is not None else None,
+        chargingCurrentAmps=current_amps,
+        chargingVoltageVolts=voltage_volts,
+        averageConsumptionKwhPer100Km=avg_consumption,
+        estimatedMinutesToTargetDistance=minutes_to_target,
+        estimatedMinutesToMinimumSoc=minutes_to_min_soc,
     )

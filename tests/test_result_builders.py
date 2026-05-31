@@ -169,3 +169,72 @@ def test_build_health_result_empty():
     assert r.serviceWarning is False
     assert r.daysToService is None
     assert r.kmToService is None
+
+
+from pypolestar.models import ChargingConnectionStatus
+from pypolestar.grpc_models import ChargeTargetLevelSettingType, ChargingType
+
+from polestar_mcp_server.results import (
+    ChargeLimitResult,
+    ChargingResult,
+    build_charge_limit_result,
+    build_charging_result,
+)
+
+
+# ---- build_charge_limit_result -------------------------------------------
+
+def test_build_charge_limit_result_full():
+    r = build_charge_limit_result(
+        limit_percent=80,
+        setting_type=ChargeTargetLevelSettingType.CUSTOM,
+        pending_limit=None,
+        pending_setting=ChargeTargetLevelSettingType.CHARGE_TARGET_LEVEL_SETTING_TYPE_UNSPECIFIED,
+    )
+    assert isinstance(r, ChargeLimitResult)
+    assert r.chargeLimitPercent == 80
+    assert r.settingType == "Custom"
+    assert r.pendingLimitPercent is None
+    assert r.pendingSettingType is None      # Unspecified -> None
+
+
+def test_build_charge_limit_result_empty():
+    r = build_charge_limit_result()
+    assert r.chargeLimitPercent is None
+    assert r.settingType is None
+    assert r.pendingSettingType is None
+
+
+# ---- build_charging_result ------------------------------------------------
+
+def test_build_charging_result_full():
+    r = build_charging_result(
+        charging_status=ChargingStatus.CHARGING_STATUS_CHARGING,
+        connection_status=ChargingConnectionStatus.CHARGER_CONNECTION_STATUS_CONNECTED,
+        charging_type=ChargingType.CHARGING_TYPE_DC,
+        power_watts=50000,
+        current_amps=125,
+        voltage_volts=400,
+        avg_consumption=17.0,
+        minutes_to_target=30,
+        minutes_to_min_soc=10,
+    )
+    assert isinstance(r, ChargingResult)
+    assert r.chargingStatus == "Charging"
+    assert r.chargerConnectionStatus == "Connected"
+    assert r.chargingType == "DC"
+    assert r.chargingPowerKw == 50.0
+    assert r.chargingCurrentAmps == 125
+    assert r.chargingVoltageVolts == 400
+    assert r.averageConsumptionKwhPer100Km == 17.0
+    assert r.estimatedMinutesToTargetDistance == 30
+    assert r.estimatedMinutesToMinimumSoc == 10
+
+
+def test_build_charging_result_empty():
+    r = build_charging_result()
+    assert r.chargingStatus == "Unknown"
+    assert r.chargerConnectionStatus is None
+    assert r.chargingType is None
+    assert r.chargingPowerKw is None
+    assert r.chargingCurrentAmps is None
