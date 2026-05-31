@@ -18,7 +18,7 @@ from .polestar.auth import PolestarAuth
 from .polestar.api_client import PolestarAPIClient
 from .polestar.models import VehicleInfo
 from .cache.manager import CacheManager
-from .utils.errors import APIError, AuthenticationError, PolestarMCPError
+from .utils.errors import APIError, AuthenticationError, PolestarMCPError, VehicleNotFoundError
 from .results import (
     StatusResult,
     VehicleInfoResult,
@@ -214,7 +214,7 @@ async def polestar_get_status(params: GetStatusInput, ctx: Context) -> StatusRes
     state = _get_state(ctx)
     api, error = await _ensure_connected(state)
     if error:
-        raise RuntimeError(error)
+        raise PolestarMCPError(error)
 
     cache: CacheManager = state["cache"]
     vin = _resolve_vin(ctx, params.vin)
@@ -264,7 +264,7 @@ async def polestar_get_vehicle_info(params: GetVehicleInfoInput, ctx: Context) -
     state = _get_state(ctx)
     api, error = await _ensure_connected(state)
     if error:
-        raise RuntimeError(error)
+        raise PolestarMCPError(error)
 
     cache: CacheManager = state["cache"]
     vehicles: list[VehicleInfo] = state["vehicles"]
@@ -290,7 +290,7 @@ async def polestar_get_vehicle_info(params: GetVehicleInfoInput, ctx: Context) -
             cache.set(cache_key, data, data_type="vehicle_info")
             return build_vehicle_info_result(data)
 
-    raise ValueError(f"Vehicle with VIN '{vin}' not found in your account.")
+    raise VehicleNotFoundError(vin)
 
 
 # --------------------------------------------------------------------------
@@ -325,7 +325,7 @@ async def polestar_get_health(params: GetHealthInput, ctx: Context) -> HealthRes
     state = _get_state(ctx)
     api, error = await _ensure_connected(state)
     if error:
-        raise RuntimeError(error)
+        raise PolestarMCPError(error)
 
     cache: CacheManager = state["cache"]
     vin = _resolve_vin(ctx, params.vin)

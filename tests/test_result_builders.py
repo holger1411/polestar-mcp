@@ -12,6 +12,7 @@ from polestar_mcp_server.results import (
     build_vehicle_info_result,
     display_charging_status,
 )
+from polestar_mcp_server.polestar.models import ChargingStatus
 
 
 def test_display_charging_status_smart():
@@ -29,6 +30,11 @@ def test_display_charging_status_done():
 
 def test_display_charging_status_none():
     assert display_charging_status(None) == "Unknown"
+
+
+def test_display_charging_status_enum_member():
+    # model_dump() yields the enum member, not a plain str — the .value guard must handle it
+    assert display_charging_status(ChargingStatus.CHARGING_STATUS_SMART_CHARGING) == "Smart Charging"
 
 
 def test_build_status_result_full():
