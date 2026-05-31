@@ -19,6 +19,14 @@ from .polestar.api_client import PolestarAPIClient
 from .polestar.models import VehicleInfo
 from .cache.manager import CacheManager
 from .utils.errors import APIError, AuthenticationError, PolestarMCPError
+from .results import (
+    StatusResult,
+    VehicleInfoResult,
+    HealthResult,
+    build_status_result,
+    build_vehicle_info_result,
+    build_health_result,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -197,88 +205,31 @@ class GetStatusInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def polestar_get_status(params: GetStatusInput, ctx: Context) -> str:
+async def polestar_get_status(params: GetStatusInput, ctx: Context) -> StatusResult:
     """Get current vehicle status: battery level, charging state, range, and odometer.
 
     Returns real-time data including battery charge percentage, charging status,
     estimated remaining range in km, and total distance driven.
     """
-    try:
-        state = _get_state(ctx)
-        api, error = await _ensure_connected(state)
-        if error:
-            return f"Error: {error}"
+    state = _get_state(ctx)
+    api, error = await _ensure_connected(state)
+    if error:
+        raise RuntimeError(error)
 
-        cache: CacheManager = state["cache"]
-        vin = _resolve_vin(ctx, params.vin)
+    cache: CacheManager = state["cache"]
+    vin = _resolve_vin(ctx, params.vin)
+    if not vin:
+        raise ValueError("No vehicle VIN available. Set POLESTAR_VIN or provide a VIN.")
 
-        if not vin:
-            return "Error: No vehicle VIN available. Set POLESTAR_VIN or provide a VIN."
+    cache_key = cache.make_key("status", vin=vin)
+    cached = cache.get(cache_key)
+    if cached:
+        return build_status_result(cached)
 
-        # Check cache
-        cache_key = cache.make_key("status", vin=vin)
-        cached = cache.get(cache_key)
-        if cached:
-            return _format_status(cached, vin, from_cache=True)
-
-        # Fetch fresh data
-        telematics = await api.get_telematics(vin)
-        data = telematics.model_dump()
-        cache.set(cache_key, data, data_type="status")
-
-        return _format_status(data, vin)
-
-    except PolestarMCPError as exc:
-        return f"Error: {exc.error_code} — {exc}"
-    except Exception as exc:
-        logger.exception("Unexpected error in polestar_get_status")
-        return f"Error: {type(exc).__name__}: {exc}"
-
-
-def _format_status(data: dict, vin: str, from_cache: bool = False) -> str:
-    """Format telematics data as readable Markdown."""
-    battery = data.get("battery") or {}
-    odometer = data.get("odometer") or {}
-
-    lines = [f"# Polestar Status — {vin[:8]}..."]
-    if from_cache:
-        lines.append("*(cached)*")
-    lines.append("")
-
-    # Battery
-    charge = battery.get("charge_level_percent")
-    status = battery.get("charging_status")
-    range_km = battery.get("remaining_range_km")
-    charge_min = battery.get("estimated_charging_minutes")
-    power_w = battery.get("charging_power_watts")
-
-    lines.append("## Battery & Charging")
-    if charge is not None:
-        lines.append(f"- **Charge**: {charge:.0f}%")
-    if status:
-        display = status.replace("CHARGING_STATUS_", "").replace("_", " ").title()
-        lines.append(f"- **Status**: {display}")
-    if range_km is not None:
-        lines.append(f"- **Range**: {range_km:.0f} km")
-    if charge_min is not None and charge_min > 0:
-        hours = charge_min // 60
-        mins = charge_min % 60
-        lines.append(f"- **Time to full**: {hours}h {mins}min")
-    if power_w is not None and power_w > 0:
-        lines.append(f"- **Charging power**: {power_w / 1000:.1f} kW")
-
-    # Odometer
-    total_km = odometer.get("total_km")
-    avg_speed = odometer.get("average_speed_kmh")
-
-    lines.append("")
-    lines.append("## Odometer")
-    if total_km is not None:
-        lines.append(f"- **Total**: {total_km:,.0f} km")
-    if avg_speed is not None:
-        lines.append(f"- **Avg speed**: {avg_speed:.1f} km/h")
-
-    return "\n".join(lines)
+    telematics = await api.get_telematics(vin)
+    data = telematics.model_dump()
+    cache.set(cache_key, data, data_type="status")
+    return build_status_result(data)
 
 
 # --------------------------------------------------------------------------
@@ -305,70 +256,41 @@ class GetVehicleInfoInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def polestar_get_vehicle_info(params: GetVehicleInfoInput, ctx: Context) -> str:
+async def polestar_get_vehicle_info(params: GetVehicleInfoInput, ctx: Context) -> VehicleInfoResult:
     """Get static vehicle information: model, year, VIN, battery specs, software version.
 
     This data changes rarely (only after OTA updates) and is heavily cached.
     """
-    try:
-        state = _get_state(ctx)
-        api, error = await _ensure_connected(state)
-        if error:
-            return f"Error: {error}"
+    state = _get_state(ctx)
+    api, error = await _ensure_connected(state)
+    if error:
+        raise RuntimeError(error)
 
-        cache: CacheManager = state["cache"]
-        vehicles: list[VehicleInfo] = state["vehicles"]
-        vin = _resolve_vin(ctx, params.vin)
+    cache: CacheManager = state["cache"]
+    vehicles: list[VehicleInfo] = state["vehicles"]
+    vin = _resolve_vin(ctx, params.vin)
+    if not vin:
+        raise ValueError("No vehicle VIN available.")
 
-        if not vin:
-            return "Error: No vehicle VIN available."
+    cache_key = cache.make_key("vehicle_info", vin=vin)
+    cached = cache.get(cache_key)
+    if cached:
+        return build_vehicle_info_result(cached)
 
-        # Check cache first
-        cache_key = cache.make_key("vehicle_info", vin=vin)
-        cached = cache.get(cache_key)
-        if cached:
-            return _format_vehicle_info(cached, from_cache=True)
+    for v in vehicles:
+        if v.vin == vin:
+            data = v.model_dump()
+            cache.set(cache_key, data, data_type="vehicle_info")
+            return build_vehicle_info_result(data)
 
-        # Find in pre-fetched vehicle list
-        for v in vehicles:
-            if v.vin == vin:
-                data = v.model_dump()
-                cache.set(cache_key, data, data_type="vehicle_info")
-                return _format_vehicle_info(data)
+    fresh_vehicles = await api.get_vehicles()
+    for v in fresh_vehicles:
+        if v.vin == vin:
+            data = v.model_dump()
+            cache.set(cache_key, data, data_type="vehicle_info")
+            return build_vehicle_info_result(data)
 
-        # Re-fetch
-        fresh_vehicles = await api.get_vehicles()
-        for v in fresh_vehicles:
-            if v.vin == vin:
-                data = v.model_dump()
-                cache.set(cache_key, data, data_type="vehicle_info")
-                return _format_vehicle_info(data)
-
-        return f"Error: Vehicle with VIN '{vin}' not found in your account."
-
-    except PolestarMCPError as exc:
-        return f"Error: {exc.error_code} — {exc}"
-    except Exception as exc:
-        logger.exception("Unexpected error in polestar_get_vehicle_info")
-        return f"Error: {type(exc).__name__}: {exc}"
-
-
-def _format_vehicle_info(data: dict, from_cache: bool = False) -> str:
-    """Format vehicle info as readable Markdown."""
-    lines = [f"# Vehicle Info — {data.get('vin', 'Unknown')[:8]}..."]
-    if from_cache:
-        lines.append("*(cached)*")
-    lines.append("")
-
-    if data.get("model_name"):
-        lines.append(f"- **Model**: {data['model_name']}")
-    lines.append(f"- **VIN**: {data.get('vin', 'N/A')}")
-    if data.get("registration_number"):
-        lines.append(f"- **Registration**: {data['registration_number']}")
-    if data.get("delivery_date"):
-        lines.append(f"- **Delivered**: {data['delivery_date']}")
-
-    return "\n".join(lines)
+    raise ValueError(f"Vehicle with VIN '{vin}' not found in your account.")
 
 
 # --------------------------------------------------------------------------
@@ -395,92 +317,30 @@ class GetHealthInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def polestar_get_health(params: GetHealthInput, ctx: Context) -> str:
+async def polestar_get_health(params: GetHealthInput, ctx: Context) -> HealthResult:
     """Get vehicle health and maintenance status: fluid levels, service warnings, next service date.
 
     Checks brake fluid, coolant, oil levels and reports on upcoming service needs.
     """
-    try:
-        state = _get_state(ctx)
-        api, error = await _ensure_connected(state)
-        if error:
-            return f"Error: {error}"
+    state = _get_state(ctx)
+    api, error = await _ensure_connected(state)
+    if error:
+        raise RuntimeError(error)
 
-        cache: CacheManager = state["cache"]
-        vin = _resolve_vin(ctx, params.vin)
+    cache: CacheManager = state["cache"]
+    vin = _resolve_vin(ctx, params.vin)
+    if not vin:
+        raise ValueError("No vehicle VIN available.")
 
-        if not vin:
-            return "Error: No vehicle VIN available."
+    cache_key = cache.make_key("health", vin=vin)
+    cached = cache.get(cache_key)
+    if cached:
+        return build_health_result(cached)
 
-        # Check cache
-        cache_key = cache.make_key("health", vin=vin)
-        cached = cache.get(cache_key)
-        if cached:
-            return _format_health(cached, vin, from_cache=True)
-
-        # Fetch fresh
-        telematics = await api.get_telematics(vin)
-        health_data = (telematics.health.model_dump() if telematics.health else {})
-        cache.set(cache_key, health_data, data_type="health")
-
-        return _format_health(health_data, vin)
-
-    except PolestarMCPError as exc:
-        return f"Error: {exc.error_code} — {exc}"
-    except Exception as exc:
-        logger.exception("Unexpected error in polestar_get_health")
-        return f"Error: {type(exc).__name__}: {exc}"
-
-
-def _format_health(data: dict, vin: str, from_cache: bool = False) -> str:
-    """Format health data as readable Markdown."""
-    lines = [f"# Health Report — {vin[:8]}..."]
-    if from_cache:
-        lines.append("*(cached)*")
-    lines.append("")
-
-    if not data:
-        lines.append("No health data available for this vehicle.")
-        return "\n".join(lines)
-
-    # Fluid levels
-    lines.append("## Fluid Levels")
-    warnings = {
-        "brake_fluid_level_warning": "Brake Fluid",
-        "coolant_level_warning": "Coolant",
-        "oil_level_warning": "Oil",
-    }
-    any_warning = False
-    for key, label in warnings.items():
-        val = data.get(key)
-        if val is True:
-            lines.append(f"- **{label}**: WARNING — Low level!")
-            any_warning = True
-        elif val is False:
-            lines.append(f"- **{label}**: OK")
-
-    if not any_warning:
-        lines.append("")
-        lines.append("All fluid levels normal.")
-
-    # Service
-    lines.append("")
-    lines.append("## Service")
-    service_warning = data.get("service_warning")
-    days = data.get("days_to_service")
-    km = data.get("km_to_service")
-
-    if service_warning is True:
-        lines.append("- **Service required!**")
-    elif service_warning is False:
-        lines.append("- No service warnings")
-
-    if days is not None:
-        lines.append(f"- **Next service in**: {days} days")
-    if km is not None:
-        lines.append(f"- **Next service in**: {km:,.0f} km")
-
-    return "\n".join(lines)
+    telematics = await api.get_telematics(vin)
+    health_data = telematics.health.model_dump() if telematics.health else {}
+    cache.set(cache_key, health_data, data_type="health")
+    return build_health_result(health_data)
 
 
 # --------------------------------------------------------------------------
