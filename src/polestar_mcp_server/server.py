@@ -20,9 +20,13 @@ from .results import (
     StatusResult,
     VehicleInfoResult,
     HealthResult,
+    ChargeLimitResult,
+    ChargingResult,
     build_status_result,
     build_vehicle_info_result,
     build_health_result,
+    build_charge_limit_result,
+    build_charging_result,
 )
 
 logger = logging.getLogger(__name__)
@@ -261,6 +265,105 @@ async def polestar_get_health(params: GetHealthInput, ctx: Context) -> HealthRes
         service=health.service_warning if health else None,
         days=health.days_to_service if health else None,
         km=health.distance_to_service_km if health else None,
+    )
+
+
+# --------------------------------------------------------------------------
+# Tool: polestar_get_charge_limit
+# --------------------------------------------------------------------------
+
+class GetChargeLimitInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    vin: Optional[str] = Field(
+        default=None,
+        description="Vehicle Identification Number. Leave empty for default vehicle.",
+    )
+
+
+@mcp.tool(
+    name="polestar_get_charge_limit",
+    annotations={
+        "title": "Get Polestar Charge Limit",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def polestar_get_charge_limit(params: GetChargeLimitInput, ctx: Context) -> ChargeLimitResult:
+    """Get the charge limit (target state of charge): the percentage the car charges
+    up to, and the setting type (Daily / Long Trip / Custom)."""
+    state = _get_state(ctx)
+    api = await _ensure_api(state)
+    vin = _resolve_vin(ctx, params.vin)
+    if not vin:
+        raise ValueError("No vehicle VIN available.")
+
+    try:
+        await api.update_latest_data(vin, update_vehicle=False, update_telematics=False, update_grpc=True)
+        target = api.get_grpc_target_soc(vin)
+    except KeyError:
+        raise VehicleNotFoundError(vin)
+    except ValueError as exc:
+        raise PolestarMCPError(f"Polestar data error: {exc}")
+
+    return build_charge_limit_result(
+        limit_percent=target.battery_charge_target_level if target else None,
+        setting_type=target.charge_target_level_setting_type if target else None,
+        pending_limit=target.pending_battery_charge_target_level if target else None,
+        pending_setting=target.pending_charge_target_level_setting_type if target else None,
+    )
+
+
+# --------------------------------------------------------------------------
+# Tool: polestar_get_charging
+# --------------------------------------------------------------------------
+
+class GetChargingInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    vin: Optional[str] = Field(
+        default=None,
+        description="Vehicle Identification Number. Leave empty for default vehicle.",
+    )
+
+
+@mcp.tool(
+    name="polestar_get_charging",
+    annotations={
+        "title": "Get Polestar Charging Detail",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def polestar_get_charging(params: GetChargingInput, ctx: Context) -> ChargingResult:
+    """Get live charging detail: charger connection status, AC/DC type, charging
+    power/current/voltage, average consumption, and estimated charging times."""
+    state = _get_state(ctx)
+    api = await _ensure_api(state)
+    vin = _resolve_vin(ctx, params.vin)
+    if not vin:
+        raise ValueError("No vehicle VIN available.")
+
+    try:
+        await api.update_latest_data(vin, update_vehicle=False, update_telematics=False, update_grpc=True)
+        gb = api.get_grpc_battery(vin)
+    except KeyError:
+        raise VehicleNotFoundError(vin)
+    except ValueError as exc:
+        raise PolestarMCPError(f"Polestar data error: {exc}")
+
+    return build_charging_result(
+        charging_status=gb.charging_status if gb else None,
+        connection_status=gb.charger_connection_status if gb else None,
+        charging_type=gb.charging_type if gb else None,
+        power_watts=gb.charging_power_watts if gb else None,
+        current_amps=gb.charging_current_amps if gb else None,
+        voltage_volts=gb.charging_voltage_volts if gb else None,
+        avg_consumption=gb.average_energy_consumption_kwh_per_100km if gb else None,
+        minutes_to_target=gb.estimated_charging_time_minutes_to_target_distance if gb else None,
+        minutes_to_min_soc=gb.estimated_charging_time_minutes_to_minimum_soc if gb else None,
     )
 
 
