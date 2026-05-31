@@ -52,7 +52,6 @@ query CarTelematicsV2($vins: [String!]!) {
         battery {
             vin
             batteryChargeLevelPercentage
-            chargingStatus
             estimatedChargingTimeToFullMinutes
             estimatedDistanceToEmptyKm
             timestamp {
@@ -285,6 +284,18 @@ class PolestarAPIClient:
                 charging_status = ChargingStatus(raw_status)
             except ValueError:
                 charging_status = ChargingStatus.CHARGING_STATUS_UNSPECIFIED
+        else:
+            # Polestar removed `chargingStatus` from BatteryV2 (late 2025/2026).
+            # Derive from estimatedChargingTimeToFullMinutes: >0 → CHARGING,
+            # otherwise IDLE/DONE based on SoC.
+            minutes = raw.get("estimatedChargingTimeToFullMinutes")
+            soc = raw.get("batteryChargeLevelPercentage")
+            if minutes and minutes > 0:
+                charging_status = ChargingStatus.CHARGING_STATUS_CHARGING
+            elif soc is not None and soc >= 100:
+                charging_status = ChargingStatus.CHARGING_STATUS_DONE
+            else:
+                charging_status = ChargingStatus.CHARGING_STATUS_IDLE
 
         return BatteryData(
             charge_level_percent=raw.get("batteryChargeLevelPercentage"),
