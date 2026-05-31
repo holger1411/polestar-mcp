@@ -5,6 +5,7 @@ Polestar MCP Server — unofficial MCP integration for Polestar 2.
 Backend: pypolestar (GraphQL telematics + gRPC live charging data).
 """
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -25,6 +26,8 @@ from .results import (
 )
 
 logger = logging.getLogger(__name__)
+
+_init_lock = asyncio.Lock()
 
 
 # --------------------------------------------------------------------------
@@ -95,17 +98,20 @@ async def _ensure_api(state: dict) -> PolestarApi:
     """Return the live PolestarApi, retrying init once if it failed at startup."""
     if state["api"] is not None:
         return state["api"]
-    try:
-        api = _build_api(state["default_vin"])
-        await api.async_init()
-        state["api"] = api
-        if not state["default_vin"]:
-            available = api.get_available_vins()
-            if available:
-                state["default_vin"] = available[0]
-        return api
-    except Exception as exc:
-        raise PolestarMCPError(f"Polestar API init failed: {exc}")
+    async with _init_lock:
+        if state["api"] is not None:        # re-check after acquiring the lock
+            return state["api"]
+        try:
+            api = _build_api(state["default_vin"])
+            await api.async_init()
+            state["api"] = api
+            if not state["default_vin"]:
+                available = api.get_available_vins()
+                if available:
+                    state["default_vin"] = available[0]
+            return api
+        except Exception as exc:
+            raise PolestarMCPError(f"Polestar API init failed: {exc}")
 
 
 # --------------------------------------------------------------------------
@@ -142,13 +148,17 @@ async def polestar_get_status(params: GetStatusInput, ctx: Context) -> StatusRes
     if not vin:
         raise ValueError("No vehicle VIN available. Set POLESTAR_VIN or provide a VIN.")
 
-    await api.update_latest_data(vin, update_vehicle=False, update_telematics=True, update_grpc=True)
+    try:
+        await api.update_latest_data(vin, update_vehicle=False, update_telematics=True, update_grpc=True)
+        telematics = api.get_car_telematics(vin)
+        grpc_battery = api.get_grpc_battery(vin)
+    except KeyError:
+        raise VehicleNotFoundError(vin)
+    except ValueError as exc:
+        raise PolestarMCPError(f"Polestar data error: {exc}")
 
-    telematics = api.get_car_telematics(vin)
     battery = telematics.battery if telematics else None
     odometer = telematics.odometer if telematics else None
-    grpc_battery = api.get_grpc_battery(vin)
-
     return build_status_result(
         charge_percent=battery.battery_charge_level_percentage if battery else None,
         range_km=battery.estimated_distance_to_empty_km if battery else None,
@@ -189,12 +199,15 @@ async def polestar_get_vehicle_info(params: GetVehicleInfoInput, ctx: Context) -
     if not vin:
         raise ValueError("No vehicle VIN available.")
 
-    await api.update_latest_data(vin, update_vehicle=True, update_telematics=False, update_grpc=False)
-
-    info = api.get_car_information(vin)
+    try:
+        await api.update_latest_data(vin, update_vehicle=True, update_telematics=False, update_grpc=False)
+        info = api.get_car_information(vin)
+    except KeyError:
+        raise VehicleNotFoundError(vin)
+    except ValueError as exc:
+        raise PolestarMCPError(f"Polestar data error: {exc}")
     if info is None:
         raise VehicleNotFoundError(vin)
-
     return build_vehicle_info_result(
         model_name=info.model_name,
         vin=info.vin or vin,
@@ -233,11 +246,14 @@ async def polestar_get_health(params: GetHealthInput, ctx: Context) -> HealthRes
     if not vin:
         raise ValueError("No vehicle VIN available.")
 
-    await api.update_latest_data(vin, update_vehicle=False, update_telematics=True, update_grpc=False)
-
-    telematics = api.get_car_telematics(vin)
+    try:
+        await api.update_latest_data(vin, update_vehicle=False, update_telematics=True, update_grpc=False)
+        telematics = api.get_car_telematics(vin)
+    except KeyError:
+        raise VehicleNotFoundError(vin)
+    except ValueError as exc:
+        raise PolestarMCPError(f"Polestar data error: {exc}")
     health = telematics.health if telematics else None
-
     return build_health_result(
         brake=health.brake_fluid_level_warning if health else None,
         coolant=health.engine_coolant_level_warning if health else None,

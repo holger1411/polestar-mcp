@@ -61,6 +61,16 @@ def test_warning_active_service_required_is_true():
     assert _warning_active(ServiceWarning.SERVICE_WARNING_SERVICE_REQUIRED) is True
 
 
+def test_warning_active_unspecified_is_false():
+    assert _warning_active(BrakeFluidLevelWarning.BRAKE_FLUID_LEVEL_WARNING_UNSPECIFIED) is False
+
+
+def test_build_status_result_zero_power_is_zero_not_none():
+    # 0 W (plugged in, not actively charging) must be 0.0 kW, not None
+    r = build_status_result(grpc_status=ChargingStatus.CHARGING_STATUS_IDLE, grpc_power_watts=0)
+    assert r.chargingPowerKw == 0.0
+
+
 # ---- build_status_result --------------------------------------------------
 
 def test_build_status_result_full():

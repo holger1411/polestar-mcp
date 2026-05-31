@@ -12,8 +12,9 @@ from typing import Optional
 from pydantic import BaseModel
 
 _UNKNOWN = "Unknown"
+_UNSPECIFIED = "Unspecified"
 # pypolestar-Warn-Enums: diese Werte bedeuten "kein Warnzustand".
-_NO_WARNING_VALUES = {"No Warning", "Unspecified"}
+_NO_WARNING_VALUES = {"No Warning", _UNSPECIFIED}
 
 
 def _enum_value(enum_or_none) -> Optional[str]:
@@ -30,7 +31,7 @@ def _charging_status_str(status) -> str:
     entsprechen exakt der bisherigen Display-Form. None/'Unspecified' -> 'Unknown'.
     """
     value = _enum_value(status)
-    if value is None or value == "Unspecified":
+    if value is None or value == _UNSPECIFIED:
         return _UNKNOWN
     return value
 
