@@ -80,3 +80,29 @@ def build_vehicle_info_result(data: dict) -> VehicleInfoResult:
         deliveryDate=data.get("delivery_date"),
         hasPerformancePackage=None,  # nicht im Quell-Modell vorhanden
     )
+
+
+# --------------------------------------------------------------------------
+# Health
+# --------------------------------------------------------------------------
+
+class HealthResult(BaseModel):
+    """Spiegelt PolestarHealth."""
+    brakeFluidWarning: bool = False
+    coolantWarning: bool = False
+    oilWarning: bool = False
+    serviceWarning: bool = False
+    daysToService: Optional[int] = None
+    kmToService: Optional[float] = None
+
+
+def build_health_result(data: dict) -> HealthResult:
+    """data = telematics.health.model_dump() oder {} wenn keine Health-Daten."""
+    return HealthResult(
+        brakeFluidWarning=data.get("brake_fluid_level_warning") is True,
+        coolantWarning=data.get("coolant_level_warning") is True,
+        oilWarning=data.get("oil_level_warning") is True,
+        serviceWarning=data.get("service_warning") is True,
+        daysToService=data.get("days_to_service"),
+        kmToService=data.get("km_to_service"),
+    )

@@ -4,8 +4,10 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from polestar_mcp_server.results import (
+    HealthResult,
     StatusResult,
     VehicleInfoResult,
+    build_health_result,
     build_status_result,
     build_vehicle_info_result,
     display_charging_status,
@@ -79,3 +81,32 @@ def test_build_vehicle_info_result_defaults_model_name():
     r = build_vehicle_info_result(data)
     assert r.modelName == "Polestar 2"
     assert r.registrationNumber is None
+
+
+def test_build_health_result_warnings():
+    data = {
+        "brake_fluid_level_warning": True,
+        "coolant_level_warning": False,
+        "oil_level_warning": None,
+        "service_warning": True,
+        "days_to_service": 185,
+        "km_to_service": 12400.0,
+    }
+    r = build_health_result(data)
+    assert isinstance(r, HealthResult)
+    assert r.brakeFluidWarning is True
+    assert r.coolantWarning is False
+    assert r.oilWarning is False          # None -> False
+    assert r.serviceWarning is True
+    assert r.daysToService == 185
+    assert r.kmToService == 12400.0
+
+
+def test_build_health_result_empty():
+    r = build_health_result({})
+    assert r.brakeFluidWarning is False
+    assert r.coolantWarning is False
+    assert r.oilWarning is False
+    assert r.serviceWarning is False
+    assert r.daysToService is None
+    assert r.kmToService is None
