@@ -56,3 +56,27 @@ def build_status_result(data: dict) -> StatusResult:
         totalKm=odometer.get("total_km"),
         averageSpeedKmh=None,   # Quelle liefert keine Durchschnittsgeschwindigkeit
     )
+
+
+# --------------------------------------------------------------------------
+# Vehicle Info
+# --------------------------------------------------------------------------
+
+class VehicleInfoResult(BaseModel):
+    """Spiegelt PolestarVehicleInfo."""
+    modelName: str = "Polestar 2"
+    vin: str
+    registrationNumber: Optional[str] = None
+    deliveryDate: Optional[str] = None
+    hasPerformancePackage: Optional[bool] = None
+
+
+def build_vehicle_info_result(data: dict) -> VehicleInfoResult:
+    """data = VehicleInfo.model_dump()."""
+    return VehicleInfoResult(
+        modelName=data.get("model_name") or "Polestar 2",
+        vin=data.get("vin") or "N/A",
+        registrationNumber=data.get("registration_number"),
+        deliveryDate=data.get("delivery_date"),
+        hasPerformancePackage=None,  # nicht im Quell-Modell vorhanden
+    )

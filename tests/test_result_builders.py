@@ -5,7 +5,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from polestar_mcp_server.results import (
     StatusResult,
+    VehicleInfoResult,
     build_status_result,
+    build_vehicle_info_result,
     display_charging_status,
 )
 
@@ -54,3 +56,26 @@ def test_build_status_result_empty():
     assert r.chargeLevelPercent is None
     assert r.chargingStatus == "Unknown"
     assert r.totalKm is None
+
+
+def test_build_vehicle_info_result_full():
+    data = {
+        "vin": "LPSVSEGEKNL074271",
+        "registration_number": "H ER 233E",
+        "model_name": "Polestar 2",
+        "delivery_date": "2022-05-30",
+    }
+    r = build_vehicle_info_result(data)
+    assert isinstance(r, VehicleInfoResult)
+    assert r.modelName == "Polestar 2"
+    assert r.vin == "LPSVSEGEKNL074271"
+    assert r.registrationNumber == "H ER 233E"
+    assert r.deliveryDate == "2022-05-30"
+    assert r.hasPerformancePackage is None
+
+
+def test_build_vehicle_info_result_defaults_model_name():
+    data = {"vin": "XYZ", "model_name": None}
+    r = build_vehicle_info_result(data)
+    assert r.modelName == "Polestar 2"
+    assert r.registrationNumber is None
