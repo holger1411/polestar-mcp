@@ -3,29 +3,44 @@ DTO-Modelle + reine Builder für die MCP-Tool-Ausgaben.
 
 camelCase-Feldnamen, damit FastMCP `structuredContent` 1:1 zu den
 TypeScript-Interfaces im cp30-Frontend passt (PolestarStatus etc.).
-Netzwerkfrei und ohne FastMCP-Abhängigkeit → unit-testbar.
+Die Builder nehmen Primitive + pypolestar-Enums (keine pypolestar-Objekte) →
+netzwerkfrei und unit-testbar; die Tool-Handler extrahieren die Werte.
 """
 
 from typing import Optional
 
 from pydantic import BaseModel
 
+_UNKNOWN = "Unknown"
+# pypolestar-Warn-Enums: diese Werte bedeuten "kein Warnzustand".
+_NO_WARNING_VALUES = {"No Warning", "Unspecified"}
 
-# --------------------------------------------------------------------------
-# Charging-Status: exakt die alte _format_status-Darstellung reproduzieren
-# --------------------------------------------------------------------------
 
-def display_charging_status(raw) -> str:
-    """'CHARGING_STATUS_SMART_CHARGING' -> 'Smart Charging'. None -> 'Unknown'.
+def _enum_value(enum_or_none) -> Optional[str]:
+    """String-Wert eines pypolestar-StrEnum (oder None)."""
+    if enum_or_none is None:
+        return None
+    return getattr(enum_or_none, "value", str(enum_or_none))
 
-    Reproduziert bewusst die frühere Markdown-Formatierung (inkl. der Eigenheit,
-    dass DONE zu 'Done' und nicht 'Fully Charged' wird), damit die Label-Maps
-    im Frontend unverändert greifen.
+
+def _charging_status_str(status) -> str:
+    """pypolestar ChargingStatus-Enum (oder None) -> Frontend-Display-String.
+
+    pypolestars Enum-Werte ('Idle', 'Charging', 'Smart Charging', 'Done', ...)
+    entsprechen exakt der bisherigen Display-Form. None/'Unspecified' -> 'Unknown'.
     """
-    if raw is None:
-        return "Unknown"
-    raw_str = raw.value if hasattr(raw, "value") else str(raw)
-    return raw_str.replace("CHARGING_STATUS_", "").replace("_", " ").title()
+    value = _enum_value(status)
+    if value is None or value == "Unspecified":
+        return _UNKNOWN
+    return value
+
+
+def _warning_active(warning) -> bool:
+    """pypolestar Warn-Enum (oder None) -> True, wenn ein echter Warnzustand vorliegt."""
+    value = _enum_value(warning)
+    if value is None:
+        return False
+    return value not in _NO_WARNING_VALUES
 
 
 # --------------------------------------------------------------------------
@@ -43,18 +58,24 @@ class StatusResult(BaseModel):
     averageSpeedKmh: Optional[float] = None
 
 
-def build_status_result(data: dict) -> StatusResult:
-    """data = telematics.model_dump() (oder Cache-Variante davon)."""
-    battery = data.get("battery") or {}
-    odometer = data.get("odometer") or {}
+def build_status_result(
+    *,
+    charge_percent: Optional[float] = None,
+    range_km: Optional[float] = None,
+    charge_minutes: Optional[int] = None,
+    total_meters: Optional[float] = None,
+    grpc_status=None,
+    grpc_power_watts: Optional[float] = None,
+) -> StatusResult:
+    """Kernwerte aus der Telematik, Ladestatus/-leistung aus gRPC."""
     return StatusResult(
-        chargeLevelPercent=battery.get("charge_level_percent"),
-        chargingStatus=display_charging_status(battery.get("charging_status")),
-        remainingRangeKm=battery.get("remaining_range_km"),
-        estimatedChargingMinutes=battery.get("estimated_charging_minutes"),
-        chargingPowerKw=None,   # GraphQL-Quelle liefert keine Ladeleistung
-        totalKm=odometer.get("total_km"),
-        averageSpeedKmh=None,   # Quelle liefert keine Durchschnittsgeschwindigkeit
+        chargeLevelPercent=charge_percent,
+        chargingStatus=_charging_status_str(grpc_status),
+        remainingRangeKm=range_km,
+        estimatedChargingMinutes=charge_minutes,
+        chargingPowerKw=(grpc_power_watts / 1000.0) if grpc_power_watts is not None else None,
+        totalKm=(total_meters / 1000.0) if total_meters is not None else None,
+        averageSpeedKmh=None,  # Quelle liefert keine Durchschnittsgeschwindigkeit
     )
 
 
@@ -74,17 +95,22 @@ class VehicleInfoResult(BaseModel):
     market: Optional[str] = None
 
 
-def build_vehicle_info_result(data: dict) -> VehicleInfoResult:
-    """data = VehicleInfo.model_dump()."""
+def build_vehicle_info_result(
+    *,
+    model_name: Optional[str] = None,
+    vin: Optional[str] = None,
+    registration_no: Optional[str] = None,
+    model_year: Optional[str] = None,
+) -> VehicleInfoResult:
     return VehicleInfoResult(
-        modelName=data.get("model_name") or "Polestar 2",
-        vin=data.get("vin") or "N/A",
-        registrationNumber=data.get("registration_number"),
-        deliveryDate=data.get("delivery_date"),
-        hasPerformancePackage=None,  # nicht im Quell-Modell vorhanden
-        modelYear=data.get("model_year"),
-        edition=data.get("edition") or None,
-        market=data.get("market"),
+        modelName=model_name or "Polestar 2",
+        vin=vin or "N/A",
+        registrationNumber=registration_no,
+        deliveryDate=None,         # via pypolestar nicht verfügbar
+        hasPerformancePackage=None,
+        modelYear=model_year,
+        edition=None,              # via pypolestar nicht verfügbar
+        market=None,               # via pypolestar nicht verfügbar
     )
 
 
@@ -102,13 +128,20 @@ class HealthResult(BaseModel):
     kmToService: Optional[float] = None
 
 
-def build_health_result(data: dict) -> HealthResult:
-    """data = telematics.health.model_dump() oder {} wenn keine Health-Daten."""
+def build_health_result(
+    *,
+    brake=None,
+    coolant=None,
+    oil=None,
+    service=None,
+    days: Optional[int] = None,
+    km: Optional[float] = None,
+) -> HealthResult:
     return HealthResult(
-        brakeFluidWarning=data.get("brake_fluid_level_warning") is True,
-        coolantWarning=data.get("coolant_level_warning") is True,
-        oilWarning=data.get("oil_level_warning") is True,
-        serviceWarning=data.get("service_warning") is True,
-        daysToService=data.get("days_to_service"),
-        kmToService=data.get("km_to_service"),
+        brakeFluidWarning=_warning_active(brake),
+        coolantWarning=_warning_active(coolant),
+        oilWarning=_warning_active(oil),
+        serviceWarning=_warning_active(service),
+        daysToService=days,
+        kmToService=km,
     )
