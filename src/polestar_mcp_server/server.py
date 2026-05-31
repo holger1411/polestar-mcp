@@ -2,8 +2,7 @@
 """
 Polestar MCP Server — unofficial MCP integration for Polestar 2.
 
-Exposes vehicle data (battery, odometer, health, specs) via MCP tools.
-Uses the reverse-engineered Polestar GraphQL API.
+Backend: pypolestar (GraphQL telematics + gRPC live charging data).
 """
 
 import logging
@@ -13,12 +12,9 @@ from typing import Optional
 
 from mcp.server.fastmcp import FastMCP, Context
 from pydantic import BaseModel, Field, ConfigDict
+from pypolestar import PolestarApi
 
-from .polestar.auth import PolestarAuth
-from .polestar.api_client import PolestarAPIClient
-from .polestar.models import VehicleInfo
-from .cache.manager import CacheManager
-from .utils.errors import APIError, AuthenticationError, PolestarMCPError, VehicleNotFoundError
+from .utils.errors import PolestarMCPError, VehicleNotFoundError
 from .results import (
     StatusResult,
     VehicleInfoResult,
@@ -32,75 +28,53 @@ logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------
-# Lifespan: start the server, try auth — but don't crash if it fails
+# pypolestar API construction
 # --------------------------------------------------------------------------
+
+def _build_api(default_vin: str) -> PolestarApi:
+    """Create a PolestarApi from environment credentials."""
+    return PolestarApi(
+        username=os.environ.get("POLESTAR_USERNAME", ""),
+        password=os.environ.get("POLESTAR_PASSWORD", ""),
+        vins=[default_vin] if default_vin else None,
+        enable_grpc=True,
+    )
+
 
 @asynccontextmanager
 async def app_lifespan(server: FastMCP):
-    """Initialize Polestar API connection on startup, clean up on shutdown."""
-    logger.info("Polestar MCP Server starting...")
+    """Initialize the pypolestar API on startup; start anyway if auth fails."""
+    logger.info("Polestar MCP Server starting (pypolestar backend)...")
 
-    cache = CacheManager()
-    auth = None
-    api = None
-    vehicles = []
     default_vin = os.environ.get("POLESTAR_VIN", "")
-    auth_error = None
+    api: Optional[PolestarApi] = None
 
     try:
-        auth = PolestarAuth()
-        await auth.async_init()
-
-        api = PolestarAPIClient(auth)
+        api = _build_api(default_vin)
         await api.async_init()
-
-        # Pre-fetch available VINs
-        vehicles = await api.get_vehicles()
-        vin_list = [v.vin for v in vehicles]
-        if not default_vin and vin_list:
-            default_vin = vin_list[0]
-
+        available = api.get_available_vins()
+        if not default_vin and available:
+            default_vin = available[0]
         logger.info(
-            "Connected. Found %d vehicle(s). Default VIN: %s",
-            len(vin_list),
+            "Connected. VIN(s): %d, default: %s",
+            len(available),
             default_vin[:8] + "..." if default_vin else "NONE",
         )
-
-        # Cache vehicle info (rarely changes)
-        for v in vehicles:
-            key = cache.make_key("vehicle_info", vin=v.vin)
-            cache.set(key, v.model_dump(), data_type="vehicle_info")
-
     except Exception as exc:
-        auth_error = str(exc)
-        logger.error("Auth failed on startup: %s — server will start anyway", exc)
-        logger.error("Tools will attempt to reconnect when called.")
+        logger.error("pypolestar init failed: %s — server starts anyway", exc)
+        api = None
 
-    yield {
-        "auth": auth,
-        "api": api,
-        "cache": cache,
-        "vehicles": vehicles,
-        "default_vin": default_vin,
-        "auth_error": auth_error,
-    }
+    yield {"api": api, "default_vin": default_vin}
 
-    # Cleanup
     if api:
-        await api.close()
-    if auth:
-        await auth.close()
+        try:
+            await api.async_logout()
+        except Exception:
+            pass
     logger.info("Polestar MCP Server stopped.")
 
 
-# --------------------------------------------------------------------------
-# MCP Server
-# --------------------------------------------------------------------------
-
-mcp = FastMCP(
-    "polestar_mcp",
-    lifespan=app_lifespan,
-)
+mcp = FastMCP("polestar_mcp", lifespan=app_lifespan)
 
 
 # --------------------------------------------------------------------------
@@ -108,74 +82,30 @@ mcp = FastMCP(
 # --------------------------------------------------------------------------
 
 def _get_state(ctx: Context) -> dict:
-    """Get the lifespan state from context."""
     return ctx.request_context.lifespan_context
 
 
 def _resolve_vin(ctx: Context, vin: Optional[str]) -> str:
-    """Resolve VIN: use provided value or fall back to default."""
     if vin:
         return vin
-    state = _get_state(ctx)
-    return state["default_vin"]
+    return _get_state(ctx)["default_vin"]
 
 
-async def _ensure_connected(state: dict) -> tuple[PolestarAPIClient, str | None]:
-    """
-    Ensure we have an active API connection.
-    If auth failed on startup, retry now.
-    Returns (api_client, error_message).
-    """
-    if state["api"] is not None and state["auth_error"] is None:
-        return state["api"], None
-
-    # Try to (re-)connect
+async def _ensure_api(state: dict) -> PolestarApi:
+    """Return the live PolestarApi, retrying init once if it failed at startup."""
+    if state["api"] is not None:
+        return state["api"]
     try:
-        logger.info("Attempting (re-)connection to Polestar API...")
-        auth = PolestarAuth()
-        await auth.async_init()
-
-        api = PolestarAPIClient(auth)
+        api = _build_api(state["default_vin"])
         await api.async_init()
-
-        # Update state
-        state["auth"] = auth
         state["api"] = api
-        state["auth_error"] = None
-
-        # Fetch vehicles
-        vehicles = await api.get_vehicles()
-        state["vehicles"] = vehicles
-        if not state["default_vin"] and vehicles:
-            state["default_vin"] = vehicles[0].vin
-
-        # Cache vehicle info
-        cache = state["cache"]
-        for v in vehicles:
-            key = cache.make_key("vehicle_info", vin=v.vin)
-            cache.set(key, v.model_dump(), data_type="vehicle_info")
-
-        logger.info("Reconnected successfully!")
-        return api, None
-
-    except AuthenticationError as exc:
-        error = f"Authentication failed: {exc}"
-        state["auth_error"] = error
-        logger.error(error)
-        return None, error
-
-    except APIError as exc:
-        # GraphQL / transport errors reach the server but are not auth failures.
-        error = f"Polestar API error: {exc}"
-        state["auth_error"] = error
-        logger.error(error)
-        return None, error
-
+        if not state["default_vin"]:
+            available = api.get_available_vins()
+            if available:
+                state["default_vin"] = available[0]
+        return api
     except Exception as exc:
-        error = f"Unexpected error while connecting: {type(exc).__name__}: {exc}"
-        state["auth_error"] = error
-        logger.error(error)
-        return None, error
+        raise PolestarMCPError(f"Polestar API init failed: {exc}")
 
 
 # --------------------------------------------------------------------------
@@ -183,15 +113,10 @@ async def _ensure_connected(state: dict) -> tuple[PolestarAPIClient, str | None]
 # --------------------------------------------------------------------------
 
 class GetStatusInput(BaseModel):
-    """Input for retrieving current vehicle status."""
     model_config = ConfigDict(str_strip_whitespace=True)
-
     vin: Optional[str] = Field(
         default=None,
-        description=(
-            "Vehicle Identification Number. Leave empty to use default vehicle. "
-            "Example: 'YSMYKEAE3PA012345'"
-        ),
+        description="Vehicle Identification Number. Leave empty to use default vehicle.",
     )
 
 
@@ -208,28 +133,30 @@ class GetStatusInput(BaseModel):
 async def polestar_get_status(params: GetStatusInput, ctx: Context) -> StatusResult:
     """Get current vehicle status: battery level, charging state, range, and odometer.
 
-    Returns real-time data including battery charge percentage, charging status,
-    estimated remaining range in km, and total distance driven.
+    Battery/range/odometer come from telematics; live charging status and charging
+    power come from the gRPC API.
     """
     state = _get_state(ctx)
-    api, error = await _ensure_connected(state)
-    if error:
-        raise PolestarMCPError(error)
-
-    cache: CacheManager = state["cache"]
+    api = await _ensure_api(state)
     vin = _resolve_vin(ctx, params.vin)
     if not vin:
         raise ValueError("No vehicle VIN available. Set POLESTAR_VIN or provide a VIN.")
 
-    cache_key = cache.make_key("status", vin=vin)
-    cached = cache.get(cache_key)
-    if cached:
-        return build_status_result(cached)
+    await api.update_latest_data(vin, update_vehicle=False, update_telematics=True, update_grpc=True)
 
-    telematics = await api.get_telematics(vin)
-    data = telematics.model_dump()
-    cache.set(cache_key, data, data_type="status")
-    return build_status_result(data)
+    telematics = api.get_car_telematics(vin)
+    battery = telematics.battery if telematics else None
+    odometer = telematics.odometer if telematics else None
+    grpc_battery = api.get_grpc_battery(vin)
+
+    return build_status_result(
+        charge_percent=battery.battery_charge_level_percentage if battery else None,
+        range_km=battery.estimated_distance_to_empty_km if battery else None,
+        charge_minutes=battery.estimated_charging_time_to_full_minutes if battery else None,
+        total_meters=odometer.odometer_meters if odometer else None,
+        grpc_status=grpc_battery.charging_status if grpc_battery else None,
+        grpc_power_watts=grpc_battery.charging_power_watts if grpc_battery else None,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -237,9 +164,7 @@ async def polestar_get_status(params: GetStatusInput, ctx: Context) -> StatusRes
 # --------------------------------------------------------------------------
 
 class GetVehicleInfoInput(BaseModel):
-    """Input for retrieving vehicle specifications."""
     model_config = ConfigDict(str_strip_whitespace=True)
-
     vin: Optional[str] = Field(
         default=None,
         description="Vehicle Identification Number. Leave empty for default vehicle.",
@@ -257,40 +182,25 @@ class GetVehicleInfoInput(BaseModel):
     },
 )
 async def polestar_get_vehicle_info(params: GetVehicleInfoInput, ctx: Context) -> VehicleInfoResult:
-    """Get static vehicle information: model, year, VIN, battery specs, software version.
-
-    This data changes rarely (only after OTA updates) and is heavily cached.
-    """
+    """Get static vehicle information: model, model year, VIN, registration."""
     state = _get_state(ctx)
-    api, error = await _ensure_connected(state)
-    if error:
-        raise PolestarMCPError(error)
-
-    cache: CacheManager = state["cache"]
-    vehicles: list[VehicleInfo] = state["vehicles"]
+    api = await _ensure_api(state)
     vin = _resolve_vin(ctx, params.vin)
     if not vin:
         raise ValueError("No vehicle VIN available.")
 
-    cache_key = cache.make_key("vehicle_info", vin=vin)
-    cached = cache.get(cache_key)
-    if cached:
-        return build_vehicle_info_result(cached)
+    await api.update_latest_data(vin, update_vehicle=True, update_telematics=False, update_grpc=False)
 
-    for v in vehicles:
-        if v.vin == vin:
-            data = v.model_dump()
-            cache.set(cache_key, data, data_type="vehicle_info")
-            return build_vehicle_info_result(data)
+    info = api.get_car_information(vin)
+    if info is None:
+        raise VehicleNotFoundError(vin)
 
-    fresh_vehicles = await api.get_vehicles()
-    for v in fresh_vehicles:
-        if v.vin == vin:
-            data = v.model_dump()
-            cache.set(cache_key, data, data_type="vehicle_info")
-            return build_vehicle_info_result(data)
-
-    raise VehicleNotFoundError(vin)
+    return build_vehicle_info_result(
+        model_name=info.model_name,
+        vin=info.vin or vin,
+        registration_no=info.registration_no,
+        model_year=info.model_year,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -298,9 +208,7 @@ async def polestar_get_vehicle_info(params: GetVehicleInfoInput, ctx: Context) -
 # --------------------------------------------------------------------------
 
 class GetHealthInput(BaseModel):
-    """Input for retrieving vehicle health and maintenance status."""
     model_config = ConfigDict(str_strip_whitespace=True)
-
     vin: Optional[str] = Field(
         default=None,
         description="Vehicle Identification Number. Leave empty for default vehicle.",
@@ -318,29 +226,26 @@ class GetHealthInput(BaseModel):
     },
 )
 async def polestar_get_health(params: GetHealthInput, ctx: Context) -> HealthResult:
-    """Get vehicle health and maintenance status: fluid levels, service warnings, next service date.
-
-    Checks brake fluid, coolant, oil levels and reports on upcoming service needs.
-    """
+    """Get vehicle health and maintenance status: fluid levels, service warnings."""
     state = _get_state(ctx)
-    api, error = await _ensure_connected(state)
-    if error:
-        raise PolestarMCPError(error)
-
-    cache: CacheManager = state["cache"]
+    api = await _ensure_api(state)
     vin = _resolve_vin(ctx, params.vin)
     if not vin:
         raise ValueError("No vehicle VIN available.")
 
-    cache_key = cache.make_key("health", vin=vin)
-    cached = cache.get(cache_key)
-    if cached:
-        return build_health_result(cached)
+    await api.update_latest_data(vin, update_vehicle=False, update_telematics=True, update_grpc=False)
 
-    telematics = await api.get_telematics(vin)
-    health_data = telematics.health.model_dump() if telematics.health else {}
-    cache.set(cache_key, health_data, data_type="health")
-    return build_health_result(health_data)
+    telematics = api.get_car_telematics(vin)
+    health = telematics.health if telematics else None
+
+    return build_health_result(
+        brake=health.brake_fluid_level_warning if health else None,
+        coolant=health.engine_coolant_level_warning if health else None,
+        oil=health.oil_level_warning if health else None,
+        service=health.service_warning if health else None,
+        days=health.days_to_service if health else None,
+        km=health.distance_to_service_km if health else None,
+    )
 
 
 # --------------------------------------------------------------------------
