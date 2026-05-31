@@ -42,6 +42,9 @@ query GetConsumerCarsV2 {
         deliveryDate
         currentPlannedDeliveryDate
         modelName
+        modelYear
+        edition
+        market
     }
 }
 """
@@ -215,6 +218,9 @@ class PolestarAPIClient:
                 registration_number=car.get("registrationNo"),
                 model_name=car.get("modelName"),
                 delivery_date=car.get("deliveryDate"),
+                model_year=car.get("modelYear"),
+                edition=(car.get("edition") or None),
+                market=car.get("market"),
             )
             vehicles.append(vehicle)
 

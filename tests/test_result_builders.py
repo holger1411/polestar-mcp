@@ -116,3 +116,12 @@ def test_build_health_result_empty():
     assert r.serviceWarning is False
     assert r.daysToService is None
     assert r.kmToService is None
+
+
+def test_build_vehicle_info_result_includes_year_edition_market():
+    data = {"vin": "XYZ", "model_name": "Polestar 2",
+            "model_year": "2022", "edition": "", "market": "DE"}
+    r = build_vehicle_info_result(data)
+    assert r.modelYear == "2022"
+    assert r.edition is None          # empty string -> None
+    assert r.market == "DE"

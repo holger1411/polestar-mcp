@@ -69,6 +69,9 @@ class VehicleInfoResult(BaseModel):
     registrationNumber: Optional[str] = None
     deliveryDate: Optional[str] = None
     hasPerformancePackage: Optional[bool] = None
+    modelYear: Optional[str] = None
+    edition: Optional[str] = None
+    market: Optional[str] = None
 
 
 def build_vehicle_info_result(data: dict) -> VehicleInfoResult:
@@ -79,6 +82,9 @@ def build_vehicle_info_result(data: dict) -> VehicleInfoResult:
         registrationNumber=data.get("registration_number"),
         deliveryDate=data.get("delivery_date"),
         hasPerformancePackage=None,  # nicht im Quell-Modell vorhanden
+        modelYear=data.get("model_year"),
+        edition=data.get("edition") or None,
+        market=data.get("market"),
     )
 
 
